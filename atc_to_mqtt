@@ -1,0 +1,177 @@
+#!/usr/bin/env python
+
+# There are some cheap Xiaomi Mijia thermometers out there.
+# What's interesting about them is that they can send their
+# measurements by bluetooth (eg to a mobile)
+# What's even more fun is that custom firmware can be upload
+# to them!
+#
+# I'm using the PVVX firmware
+#   https://github.com/pvvx/ATC_MiThermometer
+#
+# This will broadcast the data as part of the ble announcements
+# so any bluetooth receiver can passively listen and receive the
+# data.  It allows you to have many of these devices and efficiently
+# collect data without having to connect to each one individually.
+#
+#############################################################
+#
+# This program acts as a receiver and posts the data to an MQTT server
+# as a JSON string, which can then be received by tools such as Home
+# Assistant.
+#
+# Note the PVVX firmware can broadcast in different formats.  I have it
+# configured for "custom"
+#
+# The MQTT topic will be "atc/" followed by the device mac address
+# (eg "atc/123456789abc")
+#
+# The JSON format is
+# {
+#   "time": 1635948316,
+#   "mac": "123456789abc",
+#   "name": "ATC_789abc",
+#   "tempC": 20.9,
+#   "tempF": 69.6,
+#   "humidity": 39,
+#   "battMV": 2967,
+#   "battpct": 85
+# }
+#
+# Note: the name field may start as "" if sensor data arrives before the
+# device broadcasts its name (which can be set from the pvvx flashing tool)
+#
+#############################################################
+#
+# Needs the bluepy module and the paho-mqtt module
+#
+# This may need to be run as root, or else capabilities can be set on the
+# bluepy-helper program
+#
+# e.g
+# sudo setcap 'cap_net_raw,cap_net_admin+eip' ~/.local/lib/python2.7/site-packages/bluepy/bluepy-helper
+#
+# With capabilities set then python applications can manage the bluetooth
+# stack without needing to be root.
+#
+#############################################################
+#
+# (c) Stephen Harris, Nov 2021
+# MIT licensed.  See LICENSE file
+#
+#############################################################
+
+from __future__ import print_function
+from bluepy import btle
+from time import time
+import paho.mqtt.client as mqtt
+import re
+import os
+
+# Constants
+mqtt_server = 'localhost'
+mqtt_topic_base = 'atc/'
+pvvx_id='1a18'
+pvvx_len=17
+debug=False
+
+# Global
+mqtt_client = mqtt.Client("atc_bridge_" + str(os.getpid()))
+mac_name = {}
+
+def h2i(str):
+  """ Hex to Integer wrapper around int() for readability """
+  return int(str,16)
+
+class ScanHandle(btle.DefaultDelegate):
+  def handleDiscovery(self, dev, isNewDev, isNewData):
+
+    # If this is too weak, ignore it
+    if dev.rssi < -128:
+      return
+
+    # If there's no data, ignore it
+    if not dev.scanData:
+       return
+
+    # We only want to handle entries with data type 22 beginning 1a18
+    # and length 17 bytes (34 hex chars), so we search the scan data
+    # and check each element.  We will track message 9 as well, so we
+    # can build a list of device names
+    handleMe = 0
+
+    for (sdid, desc, val) in dev.getScanData():
+      if sdid == 9:
+        if debug:
+          print("Found name: %s" % val)
+        mac_name[dev.addr] = val
+
+      if sdid == 22 and len(val) == 2*pvvx_len and val.startswith(pvvx_id):
+        if debug:
+          print("We like %s (%d)" % (val, len(val)))
+        handleMe = 1
+
+    if not handleMe:
+      if debug:
+        print("We don't like %s" % dev.scanData)
+      return
+
+    # Now we need to split the data up and convert it
+    m = re.findall('..', val)
+
+    # The fields are
+    #  0 - 1 : Identifier
+    #  2 - 7 : MAC
+    #  8 - 9 : uint16 tempC*100
+    # 10 - 11: uint16 humid*100
+    # 12 - 13: uint16 battMV
+    #      14: Battery percent
+    #      15: Broadcast count (we don't use this)
+    #      16: Flags (we don't use this)
+
+    # mac could be written as ''.join(m[7:1:-1])
+    # But since that's longer for the other entries I just
+    # do simple concatenation everywhere for consistency.
+
+    mac = m[7] + m[6] + m[5] + m[4] + m[3] + m[2]
+    temp = h2i(m[9] + m[8])/100.0
+    tempF = temp * 9.0 / 5.0 + 32.0
+    humid = h2i(m[11] + m[10])/100.0
+    battMv = h2i(m[13] + m[12])
+    battpct = h2i(m[14])
+    count = h2i(m[15])
+    flags = m[16]
+
+    name = mac_name.get(dev.addr, "")
+
+    # Round them down to match display resolution
+    temp = int(temp*10)/10.0
+    tempF = int(tempF*10)/10.0
+
+    # This is a terrible way to construct JSON, but it works...
+    jsonMsg = (
+                '{"time":%d,'
+                '"mac":"%s",'
+                '"name":"%s",'
+                '"tempC":%.1f,'
+                '"tempF":%.1f,'
+                '"humidity":%d,'
+                '"battMV":%d,'
+                '"battpct":%d'
+                '}'
+              ) % (time(),mac,name,temp,tempF,humid,battMv,battpct)
+
+    # We now need to send this to the mqtt server
+    if debug:
+        print("%s" % jsonMsg)
+    mqtt_client.publish(mqtt_topic_base + mac,payload=jsonMsg, retain=True)
+
+def main():
+  scanner = btle.Scanner(0).withDelegate(ScanHandle())
+  mqtt_client.connect(mqtt_server)
+  if debug:
+    print ("Scanning for devices...")
+  devices = scanner.scan(0)
+
+if __name__ == "__main__":
+  main()
