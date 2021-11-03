@@ -1,0 +1,61 @@
+There are some cheap Xiaomi Mijia thermometers out there.
+What's interesting about them is that they can send their
+measurements by bluetooth (eg to a mobile)
+What's even more fun is that custom firmware can be upload
+to them!
+
+I'm using the PVVX firmware
+
+    https://github.com/pvvx/ATC_MiThermometer
+
+This will broadcast the data as part of the ble announcements
+so any bluetooth receiver can passively listen and receive the
+data.  It allows you to have many of these devices and efficiently
+collect data without having to connect to each one individually.
+
+---
+
+This program acts as a receiver and posts the data to an MQTT server
+as a JSON string, which can then be received by tools such as Home
+Assistant.
+
+Note the PVVX firmware can broadcast in different formats.  I have it
+configured for "custom"
+
+The MQTT topic will be "atc/" followed by the device mac address
+(eg "atc/123456789abc")
+
+The JSON format is
+
+    {
+      "time": 1635948316,
+      "mac": "123456789abc",
+      "name": "ATC_789abc",
+      "tempC": 20.9,
+      "tempF": 69.6,
+      "humidity": 39,
+      "battMV": 2967,
+      "battpct": 85
+    }
+
+Note: the name field may start as "" if sensor data arrives before the
+device broadcasts its name (which can be set from the pvvx flashing tool)
+
+---
+
+Needs the bluepy module and the paho-mqtt module
+
+This may need to be run as root, or else capabilities can be set on the
+bluepy-helper program
+
+e.g
+
+    sudo setcap 'cap_net_raw,cap_net_admin+eip' ~/.local/lib/python2.7/site-packages/bluepy/bluepy-helper
+
+With capabilities set then python applications can manage the bluetooth
+stack without needing to be root.
+
+---
+
+(c) Stephen Harris, Nov 2021
+MIT licensed.  See LICENSE file
