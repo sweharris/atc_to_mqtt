@@ -29,6 +29,7 @@
 # The JSON format is
 # {
 #   "time": 1635948316,
+#   "date": "Wed Nov  3 10:05:16 2021",
 #   "mac": "123456789abc",
 #   "name": "ATC_789abc",
 #   "tempC": 20.9,
@@ -40,6 +41,8 @@
 #
 # Note: the name field may start as "" if sensor data arrives before the
 # device broadcasts its name (which can be set from the pvvx flashing tool)
+#
+# The "date" field is really just for humans
 #
 #############################################################
 #
@@ -63,7 +66,7 @@
 
 from __future__ import print_function
 from bluepy import btle
-from time import time
+from time import time, ctime
 import paho.mqtt.client as mqtt
 import re
 import os
@@ -149,8 +152,11 @@ class ScanHandle(btle.DefaultDelegate):
     tempF = int(tempF*10)/10.0
 
     # This is a terrible way to construct JSON, but it works...
+    t = time()
+    d = ctime(t)
     jsonMsg = (
                 '{"time":%d,'
+                '"date":"%s",'
                 '"mac":"%s",'
                 '"name":"%s",'
                 '"tempC":%.1f,'
@@ -159,7 +165,7 @@ class ScanHandle(btle.DefaultDelegate):
                 '"battMV":%d,'
                 '"battpct":%d'
                 '}'
-              ) % (time(),mac,name,temp,tempF,humid,battMv,battpct)
+              ) % (t,d,mac,name,temp,tempF,humid,battMv,battpct)
 
     # We now need to send this to the mqtt server
     if debug:
