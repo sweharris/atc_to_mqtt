@@ -175,6 +175,7 @@ class ScanHandle(btle.DefaultDelegate):
 def main():
   scanner = btle.Scanner(0).withDelegate(ScanHandle())
   mqtt_client.connect(mqtt_server)
+  mqtt_client.loop_start()
   if debug:
     print ("Scanning for devices...")
   devices = scanner.scan(0)
