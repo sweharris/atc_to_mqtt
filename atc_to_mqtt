@@ -125,7 +125,7 @@ class ScanHandle(btle.DefaultDelegate):
     # The fields are
     #  0 - 1 : Identifier
     #  2 - 7 : MAC
-    #  8 - 9 : uint16 tempC*100
+    #  8 - 9 : int16 tempC*100
     # 10 - 11: uint16 humid*100
     # 12 - 13: uint16 battMV
     #      14: Battery percent
@@ -137,7 +137,11 @@ class ScanHandle(btle.DefaultDelegate):
     # do simple concatenation everywhere for consistency.
 
     mac = m[7] + m[6] + m[5] + m[4] + m[3] + m[2]
-    temp = h2i(m[9] + m[8])/100.0
+    temp = h2i(m[9] + m[8])
+    # This is signed, so check
+    if temp > 32767:
+      temp=65536-temp
+    temp = temp/100.0
     tempF = temp * 9.0 / 5.0 + 32.0
     humid = h2i(m[11] + m[10])/100.0
     battMv = h2i(m[13] + m[12])
