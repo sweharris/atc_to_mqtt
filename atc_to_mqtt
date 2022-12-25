@@ -140,7 +140,7 @@ class ScanHandle(btle.DefaultDelegate):
     temp = h2i(m[9] + m[8])
     # This is signed, so check
     if temp > 32767:
-      temp=65536-temp
+      temp=temp-65536
     temp = temp/100.0
     tempF = temp * 9.0 / 5.0 + 32.0
     humid = h2i(m[11] + m[10])/100.0
